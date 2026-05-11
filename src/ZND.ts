@@ -8,7 +8,6 @@ export class ZND {
   constructor(reader) {
     this.reader = reader;
     this.materials = {};
-    this.missingMaterials = {};
     this.textures = [];
   }
 
@@ -96,21 +95,9 @@ export class ZND {
     }
   }
 
-  getRoomMaterials(textureId, clutId, semiTransparent = false) {
-    if (!semiTransparent) {
-      return [this.getMaterial(textureId, clutId, 'opaque')];
-    }
-
-    return [
-      this.getMaterial(textureId, clutId, 'semiOpaque'),
-      this.getMaterial(textureId, clutId, 'semiBlend'),
-    ];
-  }
-
-  getMaterial(textureId, clutId, mode = 'opaque') {
+  getMaterial(textureId, clutId) {
     const tims = this.tims;
-    const transparent = mode === 'semiBlend';
-    const id = textureId + '-' + clutId + '-' + mode;
+    const id = textureId + '-' + clutId;
 
     const materials = this.materials;
     let material = materials[id];
@@ -146,35 +133,7 @@ export class ZND {
         }
       }
 
-      if (!textureTIM || !clut) {
-        material = newVSMaterial({
-          flatShading: true,
-          transparent,
-          depthWrite: !transparent,
-          alphaTest: 0.001,
-          polygonOffset: transparent,
-          polygonOffsetFactor: -1,
-          polygonOffsetUnits: -2,
-          vertexColors: true,
-        });
-
-        if (!this.missingMaterials[id]) {
-          const missing = [];
-          if (!textureTIM) missing.push(`texture page ${textureId}`);
-          if (!clut) missing.push(`CLUT ${clutId}`);
-          console.warn(
-            `Missing ${missing.join(
-              ' and '
-            )} for ZND material ${id}; rendering without texture.`
-          );
-          this.missingMaterials[id] = true;
-        }
-
-        materials[id] = material;
-        return material;
-      }
-
-      const texture = textureTIM.build(clut, mode);
+      const texture = textureTIM.build(clut);
       texture.title = id;
 
       this.textures.push(texture);
@@ -183,17 +142,9 @@ export class ZND {
       material = newVSMaterial({
         map: texture,
         flatShading: true,
-        // PS1 textured semi-transparent polygons can mix opaque texels and
-        // blended texels within the same face via the CLUT STP bit. Split the
-        // room face into an opaque cutout pass plus a blend pass so the opaque
-        // texels still write depth like the original draw.
-        transparent,
-        depthWrite: !transparent,
-        alphaTest: 0.001,
-        polygonOffset: transparent,
-        polygonOffsetFactor: -1,
-        polygonOffsetUnits: -2,
+        transparent: true,
         vertexColors: true,
+        alphaTest: 0.1,
       });
 
       // cache

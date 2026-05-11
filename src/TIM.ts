@@ -3,7 +3,6 @@ import {
   RGBAFormat,
   NearestFilter,
   RepeatWrapping,
-  SRGBColorSpace,
 } from './three.js';
 import { parseColor } from './VSTOOLS.js';
 
@@ -80,76 +79,20 @@ export class TIM {
 
     r.seek(this.dataPtr + (oy * this.width + ox) * 2);
 
-    const buffer = new Uint16Array(16);
+    const buffer = new Uint8Array(64);
 
-    for (let i = 0; i < 16; ++i) {
-      buffer[i] = r.u16();
+    for (let i = 0; i < 64; i += 4) {
+      const c = parseColor(r.s16());
+
+      buffer[i + 0] = c[0];
+      buffer[i + 1] = c[1];
+      buffer[i + 2] = c[2];
+      buffer[i + 3] = c[3];
     }
 
     return buffer;
   }
-
-  /**
-   * @param {'opaque' | 'semiOpaque' | 'semiBlend' | 'semiFull' | boolean} mode
-   * @returns {'opaque' | 'semiOpaque' | 'semiBlend' | 'semiFull'}
-   */
-  static normalizeMode(mode) {
-    if (mode === true) return 'semiFull';
-    if (mode === false) return 'opaque';
-    if (
-      mode === 'semiOpaque' ||
-      mode === 'semiBlend' ||
-      mode === 'semiFull'
-    ) {
-      return mode;
-    }
-    return 'opaque';
-  }
-
-  /**
-   * @param {number} rawColor
-   * @param {'opaque' | 'semiOpaque' | 'semiBlend' | 'semiFull' | boolean} mode
-   */
-  static decodeTexel(rawColor, mode = 'opaque') {
-    const normalizedMode = TIM.normalizeMode(mode);
-
-    if (rawColor === 0) {
-      return [0, 0, 0, 0];
-    }
-
-    const stp = (rawColor & 0x8000) >> 15;
-    const b = (rawColor & 0x7c00) >> 10;
-    const g = (rawColor & 0x03e0) >> 5;
-    const r = rawColor & 0x001f;
-
-    let a = 255;
-    const isBlack = r === 0 && g === 0 && b === 0;
-
-    if (isBlack) {
-      if (!stp) {
-        a = 0;
-      } else {
-        a = normalizedMode === 'semiBlend' ? 0 : 255;
-      }
-    } else if (normalizedMode === 'semiOpaque') {
-      a = stp ? 0 : 255;
-    } else if (
-      normalizedMode === 'semiBlend' ||
-      normalizedMode === 'semiFull'
-    ) {
-      a = stp ? 128 : normalizedMode === 'semiBlend' ? 0 : 255;
-    }
-
-    return [r * 8, g * 8, b * 8, a];
-  }
-
-  /**
-   * @param {Uint16Array} clut
-   * @param {'opaque' | 'semiOpaque' | 'semiBlend' | 'semiFull' | boolean} mode
-   */
-  build(clut, mode = 'opaque') {
-    const normalizedMode = TIM.normalizeMode(mode);
-
+  build(clut) {
     const r = this.reader;
 
     const width = this.width;
@@ -163,20 +106,18 @@ export class TIM {
     for (let i = 0; i < size; i += 8) {
       const c = r.u8();
 
-      const hi = (c & 0xf0) >> 4;
-      const lo = c & 0x0f;
-      const left = TIM.decodeTexel(clut[lo], normalizedMode);
-      const right = TIM.decodeTexel(clut[hi], normalizedMode);
+      const hi = ((c & 0xf0) >> 4) * 4;
+      const lo = (c & 0x0f) * 4;
 
-      buffer[i + 0] = left[0];
-      buffer[i + 1] = left[1];
-      buffer[i + 2] = left[2];
-      buffer[i + 3] = left[3];
+      buffer[i + 0] = clut[lo + 0];
+      buffer[i + 1] = clut[lo + 1];
+      buffer[i + 2] = clut[lo + 2];
+      buffer[i + 3] = clut[lo + 3];
 
-      buffer[i + 4] = right[0];
-      buffer[i + 5] = right[1];
-      buffer[i + 6] = right[2];
-      buffer[i + 7] = right[3];
+      buffer[i + 4] = clut[hi + 0];
+      buffer[i + 5] = clut[hi + 1];
+      buffer[i + 6] = clut[hi + 2];
+      buffer[i + 7] = clut[hi + 3];
     }
 
     const texture = new DataTexture(buffer, width * 4, height, RGBAFormat);
@@ -184,7 +125,6 @@ export class TIM {
     texture.minFilter = NearestFilter;
     texture.wrapS = RepeatWrapping;
     texture.wrapT = RepeatWrapping;
-    texture.colorSpace = SRGBColorSpace;
     texture.needsUpdate = true;
 
     return texture;

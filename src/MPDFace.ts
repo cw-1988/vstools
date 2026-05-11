@@ -36,7 +36,6 @@ export class MPDFace {
     // 52, 54 triangles
     // 60, 62 quads
     this.type = r.u8();
-    this.semiTransparent = (this.type & 0x02) !== 0;
     // TODO assert
 
     this.r2 = r.u8();
@@ -76,29 +75,25 @@ export class MPDFace {
   }
 
   build() {
-    const ox = this.group.decX || 0;
-    const oy = this.group.decY || 0;
-    const oz = this.group.decZ || 0;
-
-    this.p1 = new Vector3(this.p1x + ox, this.p1y + oy, this.p1z + oz);
+    this.p1 = new Vector3(this.p1x, this.p1y, this.p1z);
 
     this.p2 = new Vector3(
-      this.p2x * this.group.scale + this.p1.x,
-      this.p2y * this.group.scale + this.p1.y,
-      this.p2z * this.group.scale + this.p1.z
+      this.p2x * this.group.scale + this.p1x,
+      this.p2y * this.group.scale + this.p1y,
+      this.p2z * this.group.scale + this.p1z
     );
 
     this.p3 = new Vector3(
-      this.p3x * this.group.scale + this.p1.x,
-      this.p3y * this.group.scale + this.p1.y,
-      this.p3z * this.group.scale + this.p1.z
+      this.p3x * this.group.scale + this.p1x,
+      this.p3y * this.group.scale + this.p1y,
+      this.p3z * this.group.scale + this.p1z
     );
 
     if (this.quad) {
       this.p4 = new Vector3(
-        this.p4x * this.group.scale + this.p1.x,
-        this.p4y * this.group.scale + this.p1.y,
-        this.p4z * this.group.scale + this.p1.z
+        this.p4x * this.group.scale + this.p1x,
+        this.p4y * this.group.scale + this.p1y,
+        this.p4z * this.group.scale + this.p1z
       );
     }
 

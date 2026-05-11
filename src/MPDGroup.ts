@@ -17,32 +17,17 @@ export class MPDGroup {
   header() {
     const r = this.reader;
 
-    // Geometry group header layout matches the format used by other
-    // working importers:
-    //   u8  display flags
-    //   u8  scale flags
-    //   u16 overlap flags
-    //   s16 decX, pad
-    //   s16 decY, pad
-    //   s16 decZ, pad
-    //   48 bytes remaining unknown header data
-    this.display = r.u8();
-    this.scaleFlags = r.u8();
-    this.overlapping = r.u16();
-    this.decX = r.s16();
-    r.s16(); // unknown/padding
-    this.decY = r.s16();
-    r.s16(); // unknown/padding
-    this.decZ = r.s16();
-    r.s16(); // unknown/padding
-    this.headerData = r.buffer(48);
+    this.head = [];
+
+    for (let i = 0; i < 64; ++i) {
+      this.head[i] = r.u8();
+    }
 
     // the header is not well understood
-    // it seems that the scale flag bits control how relative vertices
-    // expand from p1 within the group.
+    // it seems that the bits in the second byte are flag bits
 
     // the following fixes the scaling issues in maps 001 and 002
-    if ((this.scaleFlags & 0x08) > 0) {
+    if ((this.head[1] & 0x08) > 0) {
       this.scale = 1;
     } else {
       this.scale = 8; // TODO is this the default?
@@ -55,7 +40,6 @@ export class MPDGroup {
     this.triangleCount = r.u32();
     this.quadCount = r.u32();
     this.faceCount = this.triangleCount + this.quadCount;
-    this.translucentMeshId = 0;
 
     this.meshes = {};
 
@@ -63,7 +47,7 @@ export class MPDGroup {
       const face = new MPDFace(this.reader, this);
       face.read(false);
 
-      const mesh = this.getMesh(face);
+      const mesh = this.getMesh(face.textureId, face.clutId);
       mesh.add(face);
     }
 
@@ -71,7 +55,7 @@ export class MPDGroup {
       const face = new MPDFace(this.reader, this);
       face.read(true); // quad
 
-      const mesh = this.getMesh(face);
+      const mesh = this.getMesh(face.textureId, face.clutId);
       mesh.add(face);
     }
   }
@@ -82,31 +66,16 @@ export class MPDGroup {
     }
   }
 
-  getMesh(face) {
+  getMesh(textureId, clutId) {
     const meshes = this.meshes;
-    const textureId = face.textureId;
-    const clutId = face.clutId;
-    const semiTransparent = face.semiTransparent;
-    const id = semiTransparent
-      ? textureId +
-        '-' +
-        clutId +
-        '-st-' +
-        this.translucentMeshId++
-      : textureId + '-' + clutId + '-op';
+    const id = textureId + '-' + clutId;
 
     let mesh = meshes[id];
 
     if (mesh) {
       return mesh;
     } else {
-      mesh = new MPDMesh(
-        this.reader,
-        this,
-        textureId,
-        clutId,
-        semiTransparent
-      );
+      mesh = new MPDMesh(this.reader, this, textureId, clutId);
       meshes[id] = mesh;
       return mesh;
     }

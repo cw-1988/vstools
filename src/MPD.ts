@@ -234,11 +234,7 @@ export class MPD {
       group.build();
 
       for (const id in group.meshes) {
-        const meshes = group.meshes[id].meshes || [group.meshes[id].mesh];
-
-        for (const mesh of meshes) {
-          this.mesh.add(mesh);
-        }
+        this.mesh.add(group.meshes[id].mesh);
       }
     }
   }
@@ -251,11 +247,7 @@ export class MPD {
       const group = groups[i];
 
       for (const id in group.meshes) {
-        const meshes = group.meshes[id].meshes || [group.meshes[id].mesh];
-
-        for (const mesh of meshes) {
-          mesh.material = mat;
-        }
+        group.meshes[id].mesh.material = mat;
       }
     }
   }

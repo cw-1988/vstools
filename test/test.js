@@ -7,7 +7,6 @@ import './WEP.test.js';
 import './ZND.test.js';
 import './ZUD.test.js';
 import './Reader.test.js';
-import './TIM.test.js';
 
 import { printResults } from './util.js';
 

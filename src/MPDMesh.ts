@@ -8,13 +8,12 @@ import {
 export class MPDMesh {
   [key: string]: any;
 
-  constructor(reader, group, textureId, clutId, semiTransparent = false) {
+  constructor(reader, group, textureId, clutId) {
     this.reader = reader;
 
     this.group = group;
     this.textureId = textureId;
     this.clutId = clutId;
-    this.semiTransparent = semiTransparent;
     this.faces = [];
   }
 
@@ -162,27 +161,17 @@ export class MPDMesh {
     this.geometry.setAttribute('normal', new Float32BufferAttribute(normal, 3));
     this.geometry.setIndex(index);
 
-    let materials;
-
     if (this.group && this.group.mpd && this.group.mpd.znd) {
-      materials = this.group.mpd.znd.getRoomMaterials(
+      this.material = this.group.mpd.znd.getMaterial(
         this.textureId,
-        this.clutId,
-        this.semiTransparent
+        this.clutId
       );
     } else {
-      materials = [new MeshNormalMaterial()];
+      this.material = new MeshNormalMaterial();
     }
 
-    this.materials = materials;
-    this.material = materials[0];
-    this.meshes = materials.map((material, index) => {
-      const mesh = new Mesh(this.geometry, material);
-      mesh.rotation.x = Math.PI;
-      mesh.scale.set(0.1, 0.1, 0.1);
-      mesh.userData.vsRoomSemiTransparent = this.semiTransparent && index > 0;
-      return mesh;
-    });
-    this.mesh = this.meshes[0];
+    this.mesh = new Mesh(this.geometry, this.material);
+    this.mesh.rotation.x = Math.PI;
+    this.mesh.scale.set(0.1, 0.1, 0.1);
   }
 }
