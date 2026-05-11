@@ -1,9 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import pngjs from 'pngjs';
-import { Reader } from './Reader.js';
-import { FBC } from './FBC.js';
-import { FBT } from './FBT.js';
+import { Reader } from '../dist/Reader.js';
+import { FBC } from '../dist/FBC.js';
+import { FBT } from '../dist/FBT.js';
 
 const { PNG } = pngjs;
 

@@ -1,6 +1,6 @@
 import { testFiles } from './util.js';
-import { ZUD } from '../src/ZUD.js';
-import { Reader } from '../src/Reader.js';
+import { ZUD } from '../dist/ZUD.js';
+import { Reader } from '../dist/Reader.js';
 
 testFiles({
   label: 'ZUD',

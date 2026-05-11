@@ -1,6 +1,6 @@
 import { testFiles } from './util.js';
-import { WEP } from '../src/WEP.js';
-import { Reader } from '../src/Reader.js';
+import { WEP } from '../dist/WEP.js';
+import { Reader } from '../dist/Reader.js';
 import * as assert from 'assert';
 
 testFiles({

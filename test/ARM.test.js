@@ -1,6 +1,6 @@
 import { testFiles } from './util.js';
-import { ARM } from '../src/ARM.js';
-import { Reader } from '../src/Reader.js';
+import { ARM } from '../dist/ARM.js';
+import { Reader } from '../dist/Reader.js';
 
 testFiles({
   label: 'ARM',

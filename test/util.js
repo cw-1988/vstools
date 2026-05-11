@@ -1,7 +1,15 @@
 import * as fs from 'fs';
+import * as path from 'path';
 
 const testResults = {};
 const fileResults = {};
+const defaultDataRoot = process.env.VSTOOLS_GAME_DATA_DIR || 'data';
+
+function resolveDataDir(dir) {
+  if (!dir.startsWith('data/')) return dir;
+
+  return path.join(defaultDataRoot, dir.slice('data/'.length));
+}
 
 export async function test({ label, test }) {
   try {
@@ -15,12 +23,25 @@ export async function test({ label, test }) {
 }
 
 export function testFiles({ label, dir, filter, test }) {
-  const files = fs.readdirSync(dir).filter(filter);
+  const resolvedDir = resolveDataDir(dir);
+
+  if (!fs.existsSync(resolvedDir)) {
+    fileResults[label] = {
+      label,
+      dir: resolvedDir,
+      files: [],
+      errors: 0,
+      skipped: `missing dir: ${resolvedDir}`,
+    };
+    return;
+  }
+
+  const files = fs.readdirSync(resolvedDir).filter(filter);
   let errors = 0;
 
   for (const file of files) {
     try {
-      const buffer = fs.readFileSync(`${dir}/${file}`);
+      const buffer = fs.readFileSync(path.join(resolvedDir, file));
       test(file, buffer);
     } catch (err) {
       console.error(file);
@@ -43,7 +64,12 @@ export function printResults() {
   }
 
   for (const key of Object.keys(fileResults)) {
-    const { label, files, errors } = fileResults[key];
+    const { label, files, errors, skipped } = fileResults[key];
+    if (skipped) {
+      console.log(`${label}: SKIPPED (${skipped})`);
+      continue;
+    }
+
     const ok = files.length - errors;
     const p = ((ok / files.length) * 100).toFixed(2);
     console.log(`${label}: ${ok}/${files.length} (${p}%)`);

@@ -1,6 +1,6 @@
 import { testFiles, debugHtml, dumpReader, printResults } from './util.js';
-import { SEQ } from '../src/SEQ.js';
-import { Reader } from '../src/Reader.js';
+import { SEQ } from '../dist/SEQ.js';
+import { Reader } from '../dist/Reader.js';
 import * as fs from 'fs';
 
 testFiles({

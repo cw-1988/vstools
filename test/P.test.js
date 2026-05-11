@@ -1,6 +1,6 @@
 import { testFiles } from './util.js';
-import { P } from '../src/P.js';
-import { Reader } from '../src/Reader.js';
+import { P } from '../dist/P.js';
+import { Reader } from '../dist/Reader.js';
 
 testFiles({
   label: 'P',

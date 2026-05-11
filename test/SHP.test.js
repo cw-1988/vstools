@@ -1,6 +1,6 @@
 import { testFiles, debugHtml, dumpReader } from './util.js';
-import { SHP } from '../src/SHP.js';
-import { Reader } from '../src/Reader.js';
+import { SHP } from '../dist/SHP.js';
+import { Reader } from '../dist/Reader.js';
 import * as fs from 'fs';
 
 testFiles({

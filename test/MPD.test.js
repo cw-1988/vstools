@@ -1,6 +1,6 @@
 import { testFiles } from './util.js';
-import { MPD } from '../src/MPD.js';
-import { Reader } from '../src/Reader.js';
+import { MPD } from '../dist/MPD.js';
+import { Reader } from '../dist/Reader.js';
 
 testFiles({
   label: 'MPD',

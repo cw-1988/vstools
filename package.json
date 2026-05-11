@@ -3,11 +3,17 @@
   "version": "0.1.0",
   "description": "A browser-based toolset for Vagrant Story (2000, Square). Contains a mostly working model viewer.",
   "type": "module",
+  "packageManager": "bun@1.3.13",
   "scripts": {
-    "lint": "eslint .",
-    "format": "prettier --single-quote --write src/*.js test/*.js",
-    "test": "node --experimental-loader ./test/loader.js test/test.js",
-    "serve": "http-server -c-1"
+    "build": "bunx tsc -p tsconfig.build.json",
+    "lint": "bunx eslint .",
+    "format": "bunx prettier --single-quote --write \"src/**/*.ts\" \"test/*.js\"",
+    "pretest": "bun run build",
+    "test": "bun ./test/test.js",
+    "typecheck": "bunx tsc --noEmit",
+    "typecheck:strict": "bunx tsc -p tsconfig.strict.json --noEmit",
+    "preserve": "bun run build",
+    "serve": "bunx http-server -c-1"
   },
   "repository": {
     "type": "git",
@@ -20,13 +26,16 @@
   },
   "homepage": "https://github.com/morris/vstools",
   "dependencies": {
-    "pngjs": "^5.0.0",
-    "three": "0.117.1"
+    "pngjs": "^7.0.0",
+    "three": "0.184.0"
   },
   "devDependencies": {
-    "eslint": "^7.9.0",
-    "http-server": "^0.12.3",
-    "mocha": "^8.1.3",
-    "prettier": "^2.1.1"
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.6.2",
+    "eslint": "^10.3.0",
+    "globals": "^17.6.0",
+    "http-server": "^14.1.1",
+    "prettier": "^3.8.3",
+    "typescript": "^6.0.3"
   }
 }

@@ -1,4 +1,4 @@
-import { Reader } from '../src/Reader.js';
+import { Reader } from '../dist/Reader.js';
 import { test } from './util.js';
 import * as assert from 'assert';
 

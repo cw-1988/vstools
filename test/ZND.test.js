@@ -1,6 +1,6 @@
 import { testFiles } from './util.js';
-import { ZND } from '../src/ZND.js';
-import { Reader } from '../src/Reader.js';
+import { ZND } from '../dist/ZND.js';
+import { Reader } from '../dist/Reader.js';
 
 testFiles({
   label: 'ZND',
