@@ -1,8 +1,10 @@
+/** @param {HTMLElement} el */
 export function initUiPanel(el) {
   let collapsed = false;
 
+  /** @param {MouseEvent} e */
   el.addEventListener('click', (e) => {
-    if (e.target.matches('h2')) {
+    if (e.target instanceof Element && e.target.matches('h2')) {
       collapsed = !collapsed;
       update();
     }

@@ -15,6 +15,17 @@ export async function test({ label, test }) {
 }
 
 export function testFiles({ label, dir, filter, test }) {
+  if (!fs.existsSync(dir)) {
+    fileResults[label] = {
+      label,
+      dir,
+      files: [],
+      errors: 0,
+      skipped: `missing dir: ${dir}`,
+    };
+    return;
+  }
+
   const files = fs.readdirSync(dir).filter(filter);
   let errors = 0;
 
@@ -43,7 +54,12 @@ export function printResults() {
   }
 
   for (const key of Object.keys(fileResults)) {
-    const { label, files, errors } = fileResults[key];
+    const { label, files, errors, skipped } = fileResults[key];
+    if (skipped) {
+      console.log(`${label}: SKIPPED (${skipped})`);
+      continue;
+    }
+
     const ok = files.length - errors;
     const p = ((ok / files.length) * 100).toFixed(2);
     console.log(`${label}: ${ok}/${files.length} (${p}%)`);

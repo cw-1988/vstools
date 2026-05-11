@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.tson",
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true
+  },
+  "include": [
+    "src/types.d.ts",
+    "src/Akao.ts",
+    "src/FBT.ts",
+    "src/GIM.ts",
+    "src/WEPBone.ts",
+    "src/WEPGroup.ts",
+    "src/WEPVertex.ts",
+    "src/ui/ui-panel.ts"
+  ],
+  "exclude": ["node_modules"]
+}

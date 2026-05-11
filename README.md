@@ -31,6 +31,23 @@ To open an MPD file, you'll need the correct ZND file.
 You can find the Zone/Map list
 [here](http://datacrystal.romhacking.net/wiki/Vagrant_Story:rooms_list).
 
+## Query-Driven Loading
+
+When serving the local repo copy, the viewer can auto-load files from query parameters:
+
+- `file1`: primary file path relative to `_refs/vstools/`
+- `file2`: optional secondary file path, usually a `SEQ` or `MPD`
+- `seq`: `auto`, `battle`, or `common` when `file1` is a `ZUD`
+- `anim`: initial animation index
+
+Examples:
+
+- `index.html?file1=data/launches/Z001U00/Z001U00.ZUD&seq=battle`
+- `index.html?file1=data/launches/Z001U00/Z001U00.SHP&file2=data/launches/Z001U00/Z001U00_Common.SEQ&anim=3`
+
+The helper script `tools/export_zud_for_vstools.py` writes launcher pages into
+`_refs/vstools/data/launches/<ZUD>/` that use this format.
+
 ## Motivation
 
 Reverse engineering is very rewarding.
