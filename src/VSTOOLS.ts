@@ -196,7 +196,7 @@ export function newVSMaterial(parameters) {
 
       #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
         vec4 vertexColor = vColor;
-        vertexColor.rgb = pow( max( vertexColor.rgb, vec3( 0.0 ) ), vec3( 2.2 ) );
+        vertexColor.rgb = pow( max( vertexColor.rgb, vec3( 0.0 ) ), vec3( 1.0 ) );
         diffuseColor *= vertexColor;
       #endif
 
