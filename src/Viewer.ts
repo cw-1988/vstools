@@ -69,6 +69,7 @@ export function Viewer(this: ViewerContext) {
   const frameBox = new Box3();
   const frameSize = new Vector3();
   const frameCenter = new Vector3();
+  const dragDirection = new Vector3();
 
   const renderer = new WebGLRenderer();
   renderer.setClearColor(0x333333, 1);
@@ -85,6 +86,11 @@ export function Viewer(this: ViewerContext) {
 
   camera.position.z = 500;
   const orbitControls = new OrbitControls(camera, renderer.domElement);
+  const viewerDocument = renderer.domElement.ownerDocument;
+  let activeMousePointerId: number | null = null;
+  let activeMouseDragMode: 'rotate' | 'pan' | 'dolly' | null = null;
+  let activeMouseLastX = 0;
+  let activeMouseLastY = 0;
 
   const mixer = new AnimationMixer(scene);
   let mixerAction;
@@ -95,6 +101,138 @@ export function Viewer(this: ViewerContext) {
     mixer.update(0.01);
     renderer.render(scene, camera);
   }
+
+  orbitControls.mouseButtons.LEFT = -1;
+  orbitControls.mouseButtons.MIDDLE = -1;
+  orbitControls.mouseButtons.RIGHT = -1;
+
+  function getMouseDragMode(event: PointerEvent) {
+    if (event.pointerType !== 'mouse') return null;
+
+    switch (event.buttons & 3) {
+      case 1:
+        return 'rotate';
+      case 2:
+        return 'pan';
+      case 3:
+        return 'dolly';
+      default:
+        return null;
+    }
+  }
+
+  function resetMouseDrag(pointerId: number | null = null) {
+    if (pointerId !== null && pointerId !== activeMousePointerId) return;
+
+    activeMousePointerId = null;
+    activeMouseDragMode = null;
+    activeMouseLastX = 0;
+    activeMouseLastY = 0;
+  }
+
+  function moveCameraAlongLocalZ(mouseDeltaY: number) {
+    if (mouseDeltaY === 0) return;
+
+    const distanceToTarget = Math.max(
+      camera.position.distanceTo(orbitControls.target),
+      1
+    );
+    const localZOffset =
+      (-mouseDeltaY * distanceToTarget * 2) /
+      Math.max(renderer.domElement.clientHeight, 1);
+
+    camera.translateZ(localZOffset);
+    camera.getWorldDirection(dragDirection);
+    orbitControls.target.addScaledVector(dragDirection, -localZOffset);
+    orbitControls.update();
+  }
+
+  function onMousePointerDown(event: PointerEvent) {
+    const nextMode = getMouseDragMode(event);
+    if (nextMode === null) return;
+
+    if (activeMousePointerId === null) {
+      activeMousePointerId = event.pointerId;
+      renderer.domElement.setPointerCapture(event.pointerId);
+    } else if (event.pointerId !== activeMousePointerId) {
+      return;
+    }
+
+    activeMouseDragMode = nextMode;
+    activeMouseLastX = event.clientX;
+    activeMouseLastY = event.clientY;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function onMousePointerMove(event: PointerEvent) {
+    if (event.pointerId !== activeMousePointerId) {
+      return;
+    }
+
+    const nextMode = getMouseDragMode(event);
+    if (nextMode === null) {
+      if (event.buttons === 0) {
+        resetMouseDrag(event.pointerId);
+      }
+      return;
+    }
+
+    if (nextMode !== activeMouseDragMode) {
+      activeMouseDragMode = nextMode;
+      activeMouseLastX = event.clientX;
+      activeMouseLastY = event.clientY;
+      event.preventDefault();
+      return;
+    }
+
+    const mouseDeltaX = event.clientX - activeMouseLastX;
+    const mouseDeltaY = event.clientY - activeMouseLastY;
+    activeMouseLastX = event.clientX;
+    activeMouseLastY = event.clientY;
+
+    if (activeMouseDragMode === 'rotate') {
+      const angleScale =
+        (2 * Math.PI * orbitControls.rotateSpeed) /
+        Math.max(renderer.domElement.clientHeight, 1);
+      orbitControls.rotateLeft(angleScale * mouseDeltaX);
+      orbitControls.rotateUp(angleScale * mouseDeltaY);
+      orbitControls.update();
+    } else if (activeMouseDragMode === 'pan') {
+      orbitControls.pan(
+        mouseDeltaX * orbitControls.panSpeed,
+        mouseDeltaY * orbitControls.panSpeed
+      );
+    } else if (activeMouseDragMode === 'dolly') {
+      moveCameraAlongLocalZ(mouseDeltaY);
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function onMousePointerEnd(event: PointerEvent) {
+    if (event.pointerId !== activeMousePointerId) return;
+
+    const nextMode = getMouseDragMode(event);
+    if (nextMode === null) {
+      resetMouseDrag(event.pointerId);
+      if (renderer.domElement.hasPointerCapture(event.pointerId)) {
+        renderer.domElement.releasePointerCapture(event.pointerId);
+      }
+      return;
+    }
+
+    activeMouseDragMode = nextMode;
+    activeMouseLastX = event.clientX;
+    activeMouseLastY = event.clientY;
+    event.preventDefault();
+  }
+
+  renderer.domElement.addEventListener('pointerdown', onMousePointerDown);
+  viewerDocument.addEventListener('pointermove', onMousePointerMove);
+  viewerDocument.addEventListener('pointerup', onMousePointerEnd);
+  viewerDocument.addEventListener('pointercancel', onMousePointerEnd);
 
   function resize() {
     setTimeout(function () {
@@ -139,6 +277,7 @@ export function Viewer(this: ViewerContext) {
   let activeSHP, activeSEQ, activeZND, activeZUD, activeSEQLabel;
   let activeMountedEquipment = [];
   const autoConfig = parseAutoConfig();
+  const embeddedMode = autoConfig.embedded;
 
   // ui
 
@@ -159,8 +298,11 @@ export function Viewer(this: ViewerContext) {
   document
     .querySelector('.app-settings')
     .addEventListener('change', onSettingsChange);
+  document.querySelector('.app-mount').addEventListener('change', onMountChange);
 
   applyAutoConfig(autoConfig);
+  updateEmbeddedUi();
+  updateAnimationPanelVisibility();
   void initAutoLoad();
 
   // loading
@@ -351,10 +493,40 @@ export function Viewer(this: ViewerContext) {
 
     stopAnim();
     clearAnimMeta();
+    updateAnimationPanelVisibility();
   }
 
   function resetAnimSelection() {
     getInput('.app-animation .animation').value = '0';
+  }
+
+  function setPanelHidden(selector, hidden) {
+    getElement(selector).classList.toggle('is-hidden', hidden);
+  }
+
+  function hasAnimations() {
+    return Boolean(activeSEQ?.animations?.length);
+  }
+
+  function updateEmbeddedUi() {
+    setPanelHidden('.app-file', embeddedMode);
+
+    getElement('.app-mount')
+      .querySelectorAll('.mount-select')
+      .forEach((element) => element.classList.toggle('is-hidden', embeddedMode));
+    getElement('.app-mount')
+      .querySelectorAll('.mount-static')
+      .forEach((element) => element.classList.toggle('is-hidden', !embeddedMode));
+  }
+
+  function updateAnimationPanelVisibility() {
+    setPanelHidden('.app-animation', !hasAnimations());
+  }
+
+  function showAnimationError(message) {
+    setPanelHidden('.app-animation', false);
+    document.querySelector('.app-animation .animation-meta').innerHTML =
+      `<p class="error">${escapeHtml(message)}</p>`;
   }
 
   // animation
@@ -380,7 +552,9 @@ export function Viewer(this: ViewerContext) {
   }
 
   function updateAnim() {
-    if (!activeSEQ) {
+    updateAnimationPanelVisibility();
+
+    if (!hasAnimations()) {
       clearAnimMeta();
       document.querySelector('.app-animation .animation-count').innerHTML = '';
 
@@ -506,19 +680,19 @@ export function Viewer(this: ViewerContext) {
     clearMountedEquipment();
 
     if (!activeZUD || !activeSHP) return;
-    if (!getInput('.app-settings .attach-equipment').checked) {
+    if (!getInput('.app-mount .attach-equipment').checked) {
       return;
     }
 
     mountEquipmentMesh(
       activeZUD.weapon,
       'weapon',
-      readEquipmentMount('weapon', DEFAULT_WEAPON_MOUNT_ID)
+      readEquipmentMount('weapon', DEFAULT_WEAPON_MOUNT_ID, embeddedMode)
     );
     mountEquipmentMesh(
       activeZUD.shield,
       'shield',
-      readEquipmentMount('shield', DEFAULT_SHIELD_MOUNT_ID)
+      readEquipmentMount('shield', DEFAULT_SHIELD_MOUNT_ID, embeddedMode)
     );
   }
 
@@ -596,8 +770,10 @@ export function Viewer(this: ViewerContext) {
     return children.length > 0 ? children[0] : null;
   }
 
-  function readEquipmentMount(kind, fallbackMountId) {
-    const value = getSelect(`.app-settings .${kind}-mount`).value;
+  function readEquipmentMount(kind, fallbackMountId, forceDefault = false) {
+    if (forceDefault) return fallbackMountId;
+
+    const value = getSelect(`.app-mount .${kind}-mount`).value;
     if (value === 'none') return null;
     if (value === 'auto' || value === '') return fallbackMountId;
 
@@ -620,6 +796,12 @@ export function Viewer(this: ViewerContext) {
       attachZudEquipment();
     }
     updateSettings();
+  }
+
+  function onMountChange() {
+    if (activeZUD) {
+      attachZudEquipment();
+    }
   }
 
   function updateSettings() {
@@ -900,8 +1082,7 @@ export function Viewer(this: ViewerContext) {
       }
     } catch (error) {
       console.error(error);
-      document.querySelector('.app-animation .animation-meta').innerHTML =
-        `<p class="error">${escapeHtml(error.message)}</p>`;
+      showAnimationError(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -914,6 +1095,7 @@ export function Viewer(this: ViewerContext) {
       file2: params.get('file2'),
       seqPreference: normalizeSeqPreference(params.get('seq')),
       anim: anim === null ? null : parseInt(anim, 10),
+      embedded: params.get('embedded') === '1',
     };
   }
 
@@ -974,7 +1156,6 @@ export function Viewer(this: ViewerContext) {
   function showLoadError(error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(error);
-    document.querySelector('.app-animation .animation-meta').innerHTML =
-      `<p class="error">${escapeHtml(message)}</p>`;
+    showAnimationError(message);
   }
 }

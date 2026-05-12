@@ -194,7 +194,12 @@ export function newVSMaterial(parameters) {
 
       #include <map_fragment>
 
-      #include <color_fragment>
+      #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
+        vec4 vertexColor = vColor;
+        vertexColor.rgb = pow( max( vertexColor.rgb, vec3( 0.0 ) ), vec3( 2.2 ) );
+        diffuseColor *= vertexColor;
+      #endif
+
       #include <alphatest_fragment>
 
       gl_FragColor = diffuseColor;

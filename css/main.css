@@ -50,6 +50,11 @@ body {
   display: none;
 }
 
+.ui-panel.is-hidden,
+.is-hidden {
+  display: none !important;
+}
+
 .textures img {
 	width: 150px;
 	margin: 0 10px 10px 0;
@@ -76,4 +81,16 @@ body {
   display: block;
   width: 100%;
   margin-top: 4px;
+}
+
+.app-mount select {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.app-mount .mount-static {
+  margin: 0 0 12px 0;
+  line-height: 1.5;
+  color: #333;
 }
