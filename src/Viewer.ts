@@ -12,7 +12,11 @@ import {
   OrbitControls,
   Object3D,
   BufferGeometry,
+  SphereGeometry,
   Vector3,
+  WireframeGeometry,
+  LineSegments,
+  LineBasicMaterial,
 } from './three.js';
 import { SHP } from './SHP.js';
 import { WEP } from './WEP.js';
@@ -70,6 +74,15 @@ export function Viewer(this: ViewerContext) {
   const frameSize = new Vector3();
   const frameCenter = new Vector3();
   const dragDirection = new Vector3();
+  const orbitCenterSphere = new LineSegments(
+    new WireframeGeometry(new SphereGeometry(0.5, 4, 2)),
+    new LineBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.25,
+    })
+  );
+  let orbitCenterRadius = 3;
 
   const renderer = new WebGLRenderer();
   renderer.setClearColor(0x333333, 1);
@@ -78,6 +91,9 @@ export function Viewer(this: ViewerContext) {
 
   const root = new Object3D();
   const helpers = new Object3D();
+
+  orbitCenterSphere.name = 'orbit-center-sphere';
+  orbitCenterSphere.visible = false;
 
   scene.add(root);
   scene.add(helpers);
@@ -97,6 +113,7 @@ export function Viewer(this: ViewerContext) {
 
   function render() {
     requestAnimationFrame(render);
+    orbitCenterSphere.position.copy(orbitControls.target);
     orbitControls.update();
     mixer.update(0.01);
     renderer.render(scene, camera);
@@ -256,6 +273,7 @@ export function Viewer(this: ViewerContext) {
       maxDim / (2 * Math.tan((camera.fov * Math.PI) / 360));
     const fitWidthDistance = fitHeightDistance / camera.aspect;
     const distance = Math.max(fitHeightDistance, fitWidthDistance) * 1.35;
+    orbitCenterRadius = Math.max(maxDim * 0.025, 3);
 
     camera.near = Math.max(0.1, distance / 100);
     camera.far = Math.max(10000, distance * 20);
@@ -263,6 +281,8 @@ export function Viewer(this: ViewerContext) {
     camera.updateProjectionMatrix();
 
     orbitControls.target.copy(frameCenter);
+    orbitCenterSphere.scale.setScalar(orbitCenterRadius);
+    orbitCenterSphere.position.copy(frameCenter);
     orbitControls.update();
   }
 
@@ -303,6 +323,7 @@ export function Viewer(this: ViewerContext) {
   applyAutoConfig(autoConfig);
   updateEmbeddedUi();
   updateAnimationPanelVisibility();
+  updateMountPanelVisibility();
   void initAutoLoad();
 
   // loading
@@ -395,6 +416,7 @@ export function Viewer(this: ViewerContext) {
       zud,
       options.seqPreference || readSeqPreference()
     );
+    updateMountPanelVisibility();
 
     updateAnim();
 
@@ -494,6 +516,7 @@ export function Viewer(this: ViewerContext) {
     stopAnim();
     clearAnimMeta();
     updateAnimationPanelVisibility();
+    updateMountPanelVisibility();
   }
 
   function resetAnimSelection() {
@@ -521,6 +544,10 @@ export function Viewer(this: ViewerContext) {
 
   function updateAnimationPanelVisibility() {
     setPanelHidden('.app-animation', !hasAnimations());
+  }
+
+  function updateMountPanelVisibility() {
+    setPanelHidden('.app-mount', !activeZUD);
   }
 
   function showAnimationError(message) {
@@ -812,10 +839,18 @@ export function Viewer(this: ViewerContext) {
     const noTexture = getInput('.app-settings .no-texture').checked;
     const normals = getInput('.app-settings .normals').checked;
     const skeleton = getInput('.app-settings .skeleton').checked;
+    const showOrbitCenter = getInput(
+      '.app-settings .show-orbit-center'
+    ).checked;
 
-    helpers.traverse((object) => {
-      helpers.remove(object);
-    });
+    helpers.clear();
+    orbitCenterSphere.visible = showOrbitCenter;
+    orbitCenterSphere.position.copy(orbitControls.target);
+    orbitCenterSphere.scale.setScalar(orbitCenterRadius);
+
+    if (showOrbitCenter) {
+      helpers.add(orbitCenterSphere);
+    }
 
     root.traverse((object) => {
       if (object instanceof Mesh) {
@@ -978,6 +1013,7 @@ export function Viewer(this: ViewerContext) {
 
     activeZUD = zud;
     [activeSEQ, activeSEQLabel] = pickZudSequence(zud, preference);
+    updateMountPanelVisibility();
 
     if (!activeSEQ) {
       throw new Error(`Supplemental ZUD ${candidate.url} did not provide a SEQ`);

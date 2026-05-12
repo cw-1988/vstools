@@ -11,6 +11,7 @@ export {
   LineSegments,
   Matrix4,
   Mesh,
+  MeshBasicMaterial,
   MeshNormalMaterial,
   NearestFilter,
   Object3D,
@@ -25,9 +26,11 @@ export {
   SkeletonHelper,
   SRGBColorSpace,
   SkinnedMesh,
+  SphereGeometry,
   Vector3,
   Vector4,
   VectorKeyframeTrack,
+  WireframeGeometry,
   WebGLRenderer,
 } from 'three';
 export { OrbitControls } from 'three/addons/controls/OrbitControls.js';
