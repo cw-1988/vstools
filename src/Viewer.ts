@@ -73,7 +73,10 @@ export function Viewer(this: ViewerContext) {
   const frameBox = new Box3();
   const frameSize = new Vector3();
   const frameCenter = new Vector3();
+  const frameTarget = new Vector3();
+  const orbitCameraOffset = new Vector3();
   const dragDirection = new Vector3();
+  const boneFocusPoint = new Vector3();
   const orbitCenterSphere = new LineSegments(
     new WireframeGeometry(new SphereGeometry(0.5, 4, 2)),
     new LineBasicMaterial({
@@ -259,12 +262,13 @@ export function Viewer(this: ViewerContext) {
     }, 1);
   }
 
-  function frameRootObject() {
+  function frameRootObject(focusSource = null) {
     if (root.children.length === 0) return;
 
     frameBox.setFromObject(root);
     if (frameBox.isEmpty()) return;
 
+    root.updateMatrixWorld(true);
     frameBox.getSize(frameSize);
     frameBox.getCenter(frameCenter);
 
@@ -274,16 +278,42 @@ export function Viewer(this: ViewerContext) {
     const fitWidthDistance = fitHeightDistance / camera.aspect;
     const distance = Math.max(fitHeightDistance, fitWidthDistance) * 1.35;
     orbitCenterRadius = Math.max(maxDim * 0.025, 3);
+    const focusPoint = getPreferredOrbitFocusPoint(focusSource);
+    const targetPoint = focusPoint || frameCenter;
 
     camera.near = Math.max(0.1, distance / 100);
     camera.far = Math.max(10000, distance * 20);
-    camera.position.set(frameCenter.x, frameCenter.y, frameCenter.z + distance);
+    camera.position.set(
+      targetPoint.x,
+      targetPoint.y,
+      targetPoint.z + distance
+    );
     camera.updateProjectionMatrix();
 
-    orbitControls.target.copy(frameCenter);
+    setOrbitTarget(targetPoint, false);
+  }
+
+  function setOrbitTarget(targetPoint, preserveCameraOffset = false) {
+    if (preserveCameraOffset) {
+      orbitCameraOffset.subVectors(camera.position, orbitControls.target);
+      camera.position.copy(targetPoint).add(orbitCameraOffset);
+    }
+
+    orbitControls.target.copy(targetPoint);
     orbitCenterSphere.scale.setScalar(orbitCenterRadius);
-    orbitCenterSphere.position.copy(frameCenter);
+    orbitCenterSphere.position.copy(targetPoint);
     orbitControls.update();
+  }
+
+  function syncOrbitTargetToFocusSource(focusSource, preserveCameraOffset = false) {
+    if (!focusSource) return false;
+
+    root.updateMatrixWorld(true);
+    const focusPoint = getPreferredOrbitFocusPoint(focusSource);
+    if (!focusPoint) return false;
+
+    setOrbitTarget(focusPoint, preserveCameraOffset);
+    return true;
   }
 
   window.addEventListener('resize', resize);
@@ -362,7 +392,7 @@ export function Viewer(this: ViewerContext) {
     clean();
     root.remove(root.children[0]);
     root.add(wep.mesh);
-    frameRootObject();
+    frameRootObject(wep);
 
     updateTextures(wep.textureMap.textures);
     updateAnim();
@@ -378,7 +408,7 @@ export function Viewer(this: ViewerContext) {
     activeSHP = shp;
     root.remove(root.children[0]);
     root.add(shp.mesh);
-    frameRootObject();
+    frameRootObject(shp);
 
     updateTextures(shp.textureMap.textures);
 
@@ -423,7 +453,7 @@ export function Viewer(this: ViewerContext) {
     root.remove(root.children[0]);
     root.add(zud.shp.mesh);
     attachZudEquipment();
-    frameRootObject();
+    frameRootObject(zud.shp);
 
     updateTextures(collectZudTextures(zud));
     updateAnim();
@@ -587,7 +617,7 @@ export function Viewer(this: ViewerContext) {
 
       if (activeSHP) {
         activeSHP.buildTPose();
-        frameRootObject();
+        frameRootObject(activeSHP);
       }
 
       return;
@@ -603,6 +633,8 @@ export function Viewer(this: ViewerContext) {
       activeSHP.mesh
     );
     mixerAction.play();
+    mixer.update(0);
+    syncOrbitTargetToFocusSource(activeSHP, true);
 
     getInput('.app-animation .animation').value = String(id);
     document.querySelector('.app-animation .animation-count').innerHTML =
@@ -745,6 +777,94 @@ export function Viewer(this: ViewerContext) {
     pivot.add(equipment.mesh);
     mount.anchorBone.add(pivot);
     activeMountedEquipment.push(pivot);
+  }
+
+  function getPreferredOrbitFocusPoint(model) {
+    if (!model?.mesh || !model?.bones || !model?.skeleton?.bones) return null;
+
+    const chestPoint = getChestOrbitFocusPoint(model);
+    if (chestPoint) {
+      return chestPoint;
+    }
+
+    const bonePoint = getBestBoneOrbitFocusPoint(model);
+    if (bonePoint) {
+      return bonePoint;
+    }
+
+    return null;
+  }
+
+  function getChestOrbitFocusPoint(model) {
+    let bestPoint = null;
+    let bestScore = -Infinity;
+    const upperBodyThreshold = frameCenter.y;
+
+    for (let i = 1; i < model.bones.length; ++i) {
+      const boneInfo = model.bones[i];
+      const bone = model.skeleton.bones[i];
+      if (!bone || boneInfo.length === 0) continue;
+
+      const childCount = model.bones.filter((candidate) => candidate.parentId === i).length;
+      if (childCount === 0) continue;
+
+      // Use the middle of the bone segment so the focus sits in the torso
+      // instead of snapping to a shoulder or neck pivot.
+      boneFocusPoint.set(-boneInfo.length * 0.5, 0, 0);
+      bone.localToWorld(boneFocusPoint);
+
+      const distance = boneFocusPoint.distanceTo(frameCenter);
+      const hasGeometry = boneInfo.groupId >= 0;
+      const isUpperBody = boneFocusPoint.y >= upperBodyThreshold;
+      const isBranch = childCount >= 2;
+      const hasKnownBodyPart = boneInfo.bodyPartId !== 0;
+      const score =
+        (isBranch ? 1000 : 0) +
+        (isUpperBody ? 200 : 0) +
+        (hasGeometry ? 100 : 0) +
+        (hasKnownBodyPart ? 25 : 0) -
+        distance;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestPoint = boneFocusPoint.clone();
+      }
+    }
+
+    return bestPoint;
+  }
+
+  function getBestBoneOrbitFocusPoint(model) {
+    let bestPoint = null;
+    let bestDistance = Infinity;
+    let bestHasGeometry = false;
+
+    for (let i = 1; i < model.bones.length; ++i) {
+      const boneInfo = model.bones[i];
+      const bone = model.skeleton.bones[i];
+      if (!bone || boneInfo.length === 0) continue;
+
+      // Favor non-root bones with actual mesh attachment or terminal links,
+      // then keep the anchor close to the model's visual center.
+      const hasGeometry = boneInfo.groupId >= 0;
+      const isLeaf = !model.bones.some((candidate) => candidate.parentId === i);
+      if (!hasGeometry && !isLeaf) continue;
+
+      boneFocusPoint.set(-boneInfo.length, 0, 0);
+      bone.localToWorld(boneFocusPoint);
+
+      const distance = boneFocusPoint.distanceTo(frameCenter);
+      if (
+        distance < bestDistance ||
+        (distance === bestDistance && hasGeometry && !bestHasGeometry)
+      ) {
+        bestDistance = distance;
+        bestHasGeometry = hasGeometry;
+        bestPoint = boneFocusPoint.clone();
+      }
+    }
+
+    return bestPoint;
   }
 
   function findMountBone(shp, mountId) {
