@@ -76,6 +76,8 @@ export function Viewer(this: ViewerContext) {
   const frameTarget = new Vector3();
   const orbitCameraOffset = new Vector3();
   const dragDirection = new Vector3();
+  const dragRightDirection = new Vector3();
+  const dragOffset = new Vector3();
   const boneFocusPoint = new Vector3();
   const orbitCenterSphere = new LineSegments(
     new WireframeGeometry(new SphereGeometry(0.5, 4, 2)),
@@ -107,7 +109,7 @@ export function Viewer(this: ViewerContext) {
   const orbitControls = new OrbitControls(camera, renderer.domElement);
   const viewerDocument = renderer.domElement.ownerDocument;
   let activeMousePointerId: number | null = null;
-  let activeMouseDragMode: 'rotate' | 'pan' | 'dolly' | null = null;
+  let activeMouseDragMode: 'rotate' | 'pan' | 'groundPan' | null = null;
   let activeMouseLastX = 0;
   let activeMouseLastY = 0;
 
@@ -133,9 +135,9 @@ export function Viewer(this: ViewerContext) {
       case 1:
         return 'rotate';
       case 2:
-        return 'pan';
+        return 'groundPan';
       case 3:
-        return 'dolly';
+        return 'pan';
       default:
         return null;
     }
@@ -150,20 +152,43 @@ export function Viewer(this: ViewerContext) {
     activeMouseLastY = 0;
   }
 
-  function moveCameraAlongLocalZ(mouseDeltaY: number) {
-    if (mouseDeltaY === 0) return;
+  function moveCameraAcrossGroundPlane(
+    mouseDeltaX: number,
+    mouseDeltaY: number
+  ) {
+    if (mouseDeltaX === 0 && mouseDeltaY === 0) return;
 
     const distanceToTarget = Math.max(
       camera.position.distanceTo(orbitControls.target),
       1
     );
-    const localZOffset =
-      (-mouseDeltaY * distanceToTarget * 2) /
+    const worldUnitsPerPixel =
+      (distanceToTarget * 2 * orbitControls.panSpeed) /
       Math.max(renderer.domElement.clientHeight, 1);
 
-    camera.translateZ(localZOffset);
     camera.getWorldDirection(dragDirection);
-    orbitControls.target.addScaledVector(dragDirection, -localZOffset);
+    dragDirection.y = 0;
+    if (dragDirection.lengthSq() === 0) {
+      dragDirection.set(0, 0, -1);
+    } else {
+      dragDirection.normalize();
+    }
+
+    dragRightDirection.crossVectors(dragDirection, camera.up);
+    dragRightDirection.y = 0;
+    if (dragRightDirection.lengthSq() === 0) {
+      dragRightDirection.set(1, 0, 0);
+    } else {
+      dragRightDirection.normalize();
+    }
+
+    dragOffset
+      .copy(dragRightDirection)
+      .multiplyScalar(-mouseDeltaX * worldUnitsPerPixel)
+      .addScaledVector(dragDirection, mouseDeltaY * worldUnitsPerPixel);
+
+    camera.position.add(dragOffset);
+    orbitControls.target.add(dragOffset);
     orbitControls.update();
   }
 
@@ -223,8 +248,8 @@ export function Viewer(this: ViewerContext) {
         mouseDeltaX * orbitControls.panSpeed,
         mouseDeltaY * orbitControls.panSpeed
       );
-    } else if (activeMouseDragMode === 'dolly') {
-      moveCameraAlongLocalZ(mouseDeltaY);
+    } else if (activeMouseDragMode === 'groundPan') {
+      moveCameraAcrossGroundPlane(mouseDeltaX, mouseDeltaY);
     }
 
     event.preventDefault();
