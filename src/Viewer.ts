@@ -485,11 +485,17 @@ export function Viewer(this: ViewerContext) {
     updateSettings();
   };
 
-  loaders.znd = function (reader) {
+  loaders.znd = function (reader, options: any = {}) {
     const znd = new ZND(reader);
     znd.read();
 
     znd.frameBuffer.build();
+
+    if (options.supplemental && activeZND) {
+      activeZND.addFallback(znd);
+      updateSettings();
+      return;
+    }
 
     clean();
     activeZND = znd;
@@ -1236,6 +1242,20 @@ export function Viewer(this: ViewerContext) {
         });
       }
 
+      if (
+        file1Ext === 'znd' &&
+        autoConfig.file2 &&
+        parseExt(autoConfig.file2) === 'mpd'
+      ) {
+        for (const file of autoConfig.auxFiles) {
+          if (parseExt(file) !== 'znd') continue;
+
+          await loadUrl(file, {
+            supplemental: true,
+          });
+        }
+      }
+
       if (loadedFromShpFallbackZud) {
         if (autoConfig.anim !== null) {
           getInput('.app-animation .animation').value = String(autoConfig.anim);
@@ -1270,10 +1290,18 @@ export function Viewer(this: ViewerContext) {
   function parseAutoConfig() {
     const params = new URLSearchParams(window.location.search);
     const anim = params.get('anim');
+    const auxFiles = [];
+
+    for (let i = 1; ; ++i) {
+      const value = params.get(`aux${i}`);
+      if (value === null) break;
+      auxFiles.push(value);
+    }
 
     return {
       file1: params.get('file1'),
       file2: params.get('file2'),
+      auxFiles,
       seqPreference: normalizeSeqPreference(params.get('seq')),
       anim: anim === null ? null : parseInt(anim, 10),
       embedded: params.get('embedded') === '1',

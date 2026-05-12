@@ -9,6 +9,7 @@ export class ZND {
     this.reader = reader;
     this.materials = {};
     this.textures = [];
+    this.fallbackZnds = [];
   }
 
   read() {
@@ -83,20 +84,71 @@ export class ZND {
   }
 
   getTIM(id) {
+    const match = this.findTIMSource(id);
+    return match ? match.tim : undefined;
+  }
+
+  addFallback(znd) {
+    if (!znd || znd === this) return;
+
+    const fallbacks = this.fallbackZnds || (this.fallbackZnds = []);
+    if (!fallbacks.includes(znd)) {
+      fallbacks.push(znd);
+    }
+  }
+
+  getTextureSources() {
+    const sources = [this];
+    const seen = new Set(sources);
+
+    for (let i = 0; i < sources.length; ++i) {
+      const source = sources[i];
+
+      for (const fallback of source.fallbackZnds || []) {
+        if (!fallback || seen.has(fallback)) continue;
+        seen.add(fallback);
+        sources.push(fallback);
+      }
+    }
+
+    return sources;
+  }
+
+  findTIMSource(id) {
     const x = (id * 64) % 1024;
-    //const y = Math.floor((id * 64) / 1024);
 
-    for (let i = 0; i < this.tims.length; ++i) {
-      const tim = this.tims[i];
+    for (const source of this.getTextureSources()) {
+      for (let i = 0; i < source.tims.length; ++i) {
+        const tim = source.tims[i];
 
-      if (tim.fx === x) {
-        return tim;
+        if (tim.fx === x) {
+          return { source, tim };
+        }
+      }
+    }
+  }
+
+  findCLUTSource(clutId) {
+    const x = (clutId * 16) % 1024;
+    const y = Math.floor((clutId * 16) / 1024);
+
+    for (const source of this.getTextureSources()) {
+      for (let i = 0, l = source.tims.length; i < l; ++i) {
+        const tim = source.tims[i];
+
+        if (
+          tim.fx <= x &&
+          tim.fx + tim.width > x &&
+          tim.fy <= y &&
+          tim.fy + tim.height > y
+        ) {
+          return { source, tim, x, y };
+        }
       }
     }
   }
 
   getMaterial(textureId, clutId) {
-    const tims = this.tims;
     const id = textureId + '-' + clutId;
 
     const materials = this.materials;
@@ -105,35 +157,27 @@ export class ZND {
     if (material) {
       return material;
     } else {
-      // find texture
-      const textureTIM = this.getTIM(textureId);
+      const textureSource = this.findTIMSource(textureId);
+      const clutSource = this.findCLUTSource(clutId);
 
-      this.frameBuffer.markCLUT(clutId);
-
-      // find CLUT
-      const x = (clutId * 16) % 1024;
-      const y = Math.floor((clutId * 16) / 1024);
-
-      //console.log( x, y );
-
-      let clut = null;
-
-      for (let i = 0, l = tims.length; i < l; ++i) {
-        const tim = tims[i];
-
-        if (
-          tim.fx <= x &&
-          tim.fx + tim.width > x &&
-          tim.fy <= y &&
-          tim.fy + tim.height > y
-        ) {
-          // we found the CLUT
-          clut = tim.buildCLUT(x, y);
-          break;
-        }
+      if (clutSource && clutSource.source.frameBuffer) {
+        clutSource.source.frameBuffer.markCLUT(clutId);
+      } else if (this.frameBuffer) {
+        this.frameBuffer.markCLUT(clutId);
       }
 
-      const texture = textureTIM.build(clut);
+      if (!textureSource || !clutSource) {
+        material = this.buildFallbackMaterial(
+          id,
+          textureSource ? textureSource.tim : null,
+          clutSource ? clutSource.tim : null
+        );
+        materials[id] = material;
+        return material;
+      }
+
+      const clut = clutSource.tim.buildCLUT(clutSource.x, clutSource.y);
+      const texture = textureSource.tim.build(clut);
       texture.title = id;
 
       this.textures.push(texture);
@@ -152,5 +196,36 @@ export class ZND {
 
       return material;
     }
+  }
+
+  buildFallbackMaterial(id, textureTIM, clut) {
+    if (!this.missingMaterialWarnings) {
+      this.missingMaterialWarnings = new Set();
+    }
+
+    if (!this.missingMaterialWarnings.has(id)) {
+      const missing = [
+        textureTIM ? null : 'texture page',
+        clut ? null : 'CLUT',
+      ]
+        .filter(Boolean)
+        .join(' and ');
+
+      console.warn(`[vstools] Missing ${missing} for material ${id}`);
+      this.missingMaterialWarnings.add(id);
+    }
+
+    const material = newVSMaterial({
+      vertexColors: true,
+      transparent: true,
+      alphaTest: 0.1,
+    });
+    material.name = `missing-${id}`;
+    material.userData = {
+      missingTexture: true,
+      missingMaterialId: id,
+    };
+
+    return material;
   }
 }
