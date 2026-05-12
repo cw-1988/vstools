@@ -330,6 +330,17 @@ export class WEP {
     this.mesh.rotation.x = Math.PI;
   }
 
+  buildTPose() {
+    if (!this.skeleton) return;
+
+    // Reset to the imported bind pose instead of inventing a synthetic
+    // "T-pose". The previous heuristic rotated whole subtrees and could
+    // easily flip the character upside down for VS skeletons.
+    this.skeleton.pose();
+    this.skeleton.update();
+    this.mesh?.updateMatrixWorld(true);
+  }
+
   getParentBone(id) {
     const bone = this.bones[id];
 

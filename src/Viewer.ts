@@ -28,6 +28,10 @@ import { FBC } from './FBC.js';
 import { FBT } from './FBT.js';
 import { cloneMeshWithPose, exportPng, parseExt } from './VSTOOLS.js';
 import { initUiPanel } from './ui/ui-panel.js';
+import {
+  buildShpSupplementalCandidates,
+  type ShpSupplementalCandidate,
+} from './shp-seq-resolver.js';
 
 type ViewerContext = {
   [key: string]: any;
@@ -169,10 +173,14 @@ export function Viewer(this: ViewerContext) {
 
     if (!f1) return;
 
-    await loadFile(f1, { seqPreference: readSeqPreference() });
+    try {
+      await loadFile(f1, { seqPreference: readSeqPreference() });
 
-    if (f2) {
-      await loadFile(f2);
+      if (f2) {
+        await loadFile(f2);
+      }
+    } catch (error) {
+      showLoadError(error);
     }
   }
 
@@ -184,12 +192,11 @@ export function Viewer(this: ViewerContext) {
   }
 
   loaders.wep = function (reader) {
-    clean();
-
     const wep = new WEP(reader);
     wep.read();
     wep.build();
 
+    clean();
     root.remove(root.children[0]);
     root.add(wep.mesh);
     frameRootObject();
@@ -199,30 +206,34 @@ export function Viewer(this: ViewerContext) {
     updateSettings();
   };
 
-  loaders.shp = function (reader) {
-    clean();
-
-    const shp = (activeSHP = new SHP(reader));
+  loaders.shp = function (reader, options: any = {}) {
+    const shp = new SHP(reader);
     shp.read();
     shp.build();
 
+    clean();
+    activeSHP = shp;
     root.remove(root.children[0]);
     root.add(shp.mesh);
     frameRootObject();
 
     updateTextures(shp.textureMap.textures);
-    updateAnim();
+
+    if (!options.deferInitialAnimLoad) {
+      updateAnim();
+    }
   };
 
-  loaders.seq = function (reader) {
+  loaders.seq = function (reader, options: any = {}) {
     if (activeSHP) {
-      stopAnim();
-
-      const seq = (activeSEQ = new SEQ(reader, activeSHP));
-      activeSEQLabel = 'external';
+      const seq = new SEQ(reader, activeSHP);
+      activeSEQLabel = options.label || 'external';
       seq.read();
       seq.build();
 
+      stopAnim();
+      resetAnimSelection();
+      activeSEQ = seq;
       updateAnim();
       updateSettings();
     } else {
@@ -231,12 +242,12 @@ export function Viewer(this: ViewerContext) {
   };
 
   loaders.zud = function (reader, options: any = {}) {
-    clean();
-
-    const zud = (activeZUD = new ZUD(reader));
+    const zud = new ZUD(reader);
     zud.read();
     zud.build();
 
+    clean();
+    activeZUD = zud;
     activeSHP = zud.shp;
     [activeSEQ, activeSEQLabel] = pickZudSequence(
       zud,
@@ -256,13 +267,13 @@ export function Viewer(this: ViewerContext) {
   };
 
   loaders.znd = function (reader) {
-    clean();
-
-    const znd = (activeZND = new ZND(reader));
+    const znd = new ZND(reader);
     znd.read();
 
     znd.frameBuffer.build();
 
+    clean();
+    activeZND = znd;
     //scene.add( znd.frameBuffer.mesh );
 
     updateTextures(znd.textures);
@@ -270,12 +281,11 @@ export function Viewer(this: ViewerContext) {
   };
 
   loaders.mpd = function (reader) {
-    clean();
-
     const mpd = new MPD(reader, activeZND);
     mpd.read();
     mpd.build();
 
+    clean();
     root.remove(root.children[0]);
     root.add(mpd.mesh);
     frameRootObject();
@@ -285,12 +295,11 @@ export function Viewer(this: ViewerContext) {
   };
 
   loaders.arm = function (reader) {
-    clean();
-
     const arm = new ARM(reader);
     arm.read();
     arm.build();
 
+    clean();
     root.remove(root.children[0]);
     root.add(arm.object);
     frameRootObject();
@@ -338,9 +347,14 @@ export function Viewer(this: ViewerContext) {
     activeZUD = null;
     activeSEQLabel = null;
     clearMountedEquipment();
+    resetAnimSelection();
 
     stopAnim();
     clearAnimMeta();
+  }
+
+  function resetAnimSelection() {
+    getInput('.app-animation .animation').value = '0';
   }
 
   // animation
@@ -361,6 +375,7 @@ export function Viewer(this: ViewerContext) {
     if (!activeZUD) return;
 
     [activeSEQ, activeSEQLabel] = pickZudSequence(activeZUD, readSeqPreference());
+    resetAnimSelection();
     updateAnim();
   }
 
@@ -368,6 +383,12 @@ export function Viewer(this: ViewerContext) {
     if (!activeSEQ) {
       clearAnimMeta();
       document.querySelector('.app-animation .animation-count').innerHTML = '';
+
+      if (activeSHP) {
+        activeSHP.buildTPose();
+        frameRootObject();
+      }
+
       return;
     }
 
@@ -707,14 +728,170 @@ export function Viewer(this: ViewerContext) {
     load2(ext, data, options);
   }
 
+  async function tryLoadMatchingSeqForShp(url, preference) {
+    const candidates = buildShpSupplementalCandidates(url, preference);
+
+    for (const candidate of candidates) {
+      try {
+        if (candidate.source === 'seq') {
+          await loadUrl(candidate.url, { label: candidate.label });
+        } else {
+          await loadSupplementalZudForShp(candidate, preference);
+        }
+        return true;
+      } catch {
+        // Keep trying adjacent extracted sequence or zud sources.
+      }
+    }
+
+    return false;
+  }
+
+  async function tryLoadMatchingZudForShpUrl(url, preference) {
+    const candidates = buildShpSupplementalCandidates(url, preference).filter(
+      (candidate) => candidate.source === 'zud'
+    );
+
+    for (const candidate of candidates) {
+      try {
+        await loadUrl(candidate.url, { seqPreference: preference });
+        return true;
+      } catch {
+        // Keep trying adjacent zud sources.
+      }
+    }
+
+    return false;
+  }
+
+  function shouldPreferZudForShpUrl(url) {
+    return /_Model_SHP\/[^/]*_Character_SHP\.SHP$/i.test(url);
+  }
+
+  async function loadSupplementalZudForShp(
+    candidate: ShpSupplementalCandidate,
+    preference
+  ) {
+    const response = await fetch(new URL(candidate.url, window.location.href));
+    if (!response.ok) {
+      throw new Error(
+        `Failed to load ${candidate.url}: ${response.status} ${response.statusText}`
+      );
+    }
+
+    if (!activeSHP) {
+      throw new Error('Cannot load supplemental ZUD without SHP');
+    }
+
+    const data = new Uint8Array(await response.arrayBuffer());
+    const zud = new ZUD(new Reader(data));
+    zud.read();
+    zud.build();
+
+    if (!zud.shp || !shpsAreCompatible(activeSHP, zud.shp)) {
+      throw new Error(
+        `Supplemental ZUD ${candidate.url} is incompatible with active SHP`
+      );
+    }
+
+    activeZUD = zud;
+    [activeSEQ, activeSEQLabel] = pickZudSequence(zud, preference);
+
+    if (!activeSEQ) {
+      throw new Error(`Supplemental ZUD ${candidate.url} did not provide a SEQ`);
+    }
+
+    activeSEQLabel = candidate.label;
+  }
+
+  function shpsAreCompatible(left, right) {
+    if (!left || !right) return false;
+    if (left.numBones !== right.numBones) return false;
+    if (left.numGroups !== right.numGroups) return false;
+    if (!left.bones || !right.bones) return false;
+
+    for (let i = 0; i < left.numBones; ++i) {
+      const a = left.bones[i];
+      const b = right.bones[i];
+      if (!a || !b) return false;
+      if (a.length !== b.length) return false;
+      if (a.parentId !== b.parentId) return false;
+      if (a.groupId !== b.groupId) return false;
+      if (a.mountId !== b.mountId) return false;
+      if (a.bodyPartId !== b.bodyPartId) return false;
+    }
+
+    return true;
+  }
+
   async function initAutoLoad() {
     if (!autoConfig.file1) return;
 
     try {
-      await loadUrl(autoConfig.file1, { seqPreference: autoConfig.seqPreference });
+      const file1Ext = parseExt(autoConfig.file1);
+      const shouldAutoLoadSeq =
+        file1Ext === 'shp' && autoConfig.file2 === null;
+      let loadedFromShpFallbackZud = false;
+
+      if (shouldAutoLoadSeq) {
+        if (shouldPreferZudForShpUrl(autoConfig.file1)) {
+          clean();
+          const loadedZud = await tryLoadMatchingZudForShpUrl(
+            autoConfig.file1,
+            autoConfig.seqPreference
+          );
+          if (loadedZud) {
+            loadedFromShpFallbackZud = true;
+          } else {
+            await loadUrl(autoConfig.file1, {
+              seqPreference: autoConfig.seqPreference,
+              deferInitialAnimLoad: true,
+            });
+          }
+        } else {
+          try {
+            await loadUrl(autoConfig.file1, {
+              seqPreference: autoConfig.seqPreference,
+              deferInitialAnimLoad: true,
+            });
+          } catch (error) {
+            clean();
+            const loadedZud = await tryLoadMatchingZudForShpUrl(
+              autoConfig.file1,
+              autoConfig.seqPreference
+            );
+            if (!loadedZud) {
+              throw error;
+            }
+            loadedFromShpFallbackZud = true;
+          }
+        }
+      } else {
+        await loadUrl(autoConfig.file1, {
+          seqPreference: autoConfig.seqPreference,
+          deferInitialAnimLoad: false,
+        });
+      }
+
+      if (loadedFromShpFallbackZud) {
+        if (autoConfig.anim !== null) {
+          getInput('.app-animation .animation').value = String(autoConfig.anim);
+          updateAnim();
+        }
+        return;
+      }
 
       if (autoConfig.file2) {
         await loadUrl(autoConfig.file2);
+      } else if (file1Ext === 'shp' && activeSHP && !loadedFromShpFallbackZud) {
+        const loadedSeq = await tryLoadMatchingSeqForShp(
+          autoConfig.file1,
+          autoConfig.seqPreference
+        );
+
+        if (!loadedSeq) {
+          updateAnim();
+        }
       }
 
       if (autoConfig.anim !== null) {
@@ -792,5 +969,12 @@ export function Viewer(this: ViewerContext) {
           return char;
       }
     });
+  }
+
+  function showLoadError(error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(error);
+    document.querySelector('.app-animation .animation-meta').innerHTML =
+      `<p class="error">${escapeHtml(message)}</p>`;
   }
 }

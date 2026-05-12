@@ -3,6 +3,7 @@ import {
   RGBAFormat,
   NearestFilter,
   RepeatWrapping,
+  SRGBColorSpace,
 } from './three.js';
 import { parseColor } from './VSTOOLS.js';
 
@@ -125,6 +126,7 @@ export class TIM {
     texture.minFilter = NearestFilter;
     texture.wrapS = RepeatWrapping;
     texture.wrapT = RepeatWrapping;
+    texture.colorSpace = SRGBColorSpace;
     texture.needsUpdate = true;
 
     return texture;
