@@ -50,7 +50,41 @@ export class ZND {
   }
 
   enemiesSection() {
-    this.reader.skip(this.enemyLen);
+    const r = this.reader;
+    const end = r.pos + this.enemyLen;
+
+    this.enemyActors = [];
+    this.enemyZuds = [];
+
+    if (this.enemyLen < 4) {
+      r.skip(this.enemyLen);
+      return;
+    }
+
+    const enemyCount = r.u32();
+    this.enemyCount = enemyCount;
+
+    for (let i = 0; i < enemyCount && r.pos + 8 <= end; ++i) {
+      this.enemyActors.push({
+        index: i,
+        lba: r.u32(),
+        size: r.u32(),
+      });
+    }
+
+    for (
+      let i = this.enemyActors.length;
+      i < enemyCount && r.pos + 0x464 <= end;
+      ++i
+    ) {
+      this.enemyActors.push({
+        index: i,
+      });
+    }
+
+    if (r.pos < end) {
+      r.skip(end - r.pos);
+    }
   }
 
   timSection() {
@@ -95,6 +129,14 @@ export class ZND {
     if (!fallbacks.includes(znd)) {
       fallbacks.push(znd);
     }
+  }
+
+  attachEnemyZuds(zuds) {
+    this.enemyZuds = Array.isArray(zuds) ? zuds.slice() : [];
+  }
+
+  getEnemyZud(actorIndex) {
+    return this.enemyZuds?.[actorIndex] || null;
   }
 
   getTextureSources() {

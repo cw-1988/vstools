@@ -1,4 +1,5 @@
 import {
+  AnimationMixer,
   CanvasTexture,
   Mesh,
   MeshBasicMaterial,
@@ -11,6 +12,7 @@ import {
 } from './three.js';
 import { MPDGroup } from './MPDGroup.js';
 import { convertText } from './Text.js';
+import { cloneMeshWithPose } from './VSTOOLS.js';
 
 const TRAP_NAME_BY_RAW_ID = {
   0x00: 'Death Vapor',
@@ -41,6 +43,12 @@ const TRAP_DISPLAY_FPS = 6;
 const TRAP_DISPLAY_MIN_TRANSPARENT_PIXELS = 2000;
 const TRAP_DISPLAY_TEXTURE_ID = 6;
 const TRAP_DISPLAY_CLUT_ID = 14515;
+const ROOM_GRID_UNIT = 256;
+const ROOM_GRID_ORIGIN_OFFSET = 64;
+const ROOM_WORLD_SCALE = 0.05;
+const ENEMY_LABEL_WORLD_LIFT = 28;
+const ENEMY_LABEL_WORLD_SCALE = 0.075;
+const ENEMY_DIRECTION_LABELS = ['South', 'West', 'North', 'East'];
 
 export class MPD {
   [key: string]: any;
@@ -54,6 +62,7 @@ export class MPD {
     this.header();
     this.roomHeader();
     this.roomSection();
+    this.enemySection();
     //this.clearedSection();
     //this.scriptSection();
   }
@@ -292,6 +301,61 @@ export class MPD {
     this.reader.skip(this.lenClearedSection);
   }
 
+  enemySection() {
+    const r = this.reader;
+
+    this.enemies = [];
+
+    if (!this.ptrEnemySection || this.lenEnemySection <= 0) {
+      return;
+    }
+
+    const end = this.ptrEnemySection + this.lenEnemySection;
+    r.seek(this.ptrEnemySection);
+
+    while (r.pos + 0x28 <= end) {
+      this.enemies.push({
+        deleted: r.u8(),
+        mpdEnemyId: r.u8(),
+        unknown02: r.u8(),
+        unknown03: r.u8(),
+        zndEnemyId: r.u8(),
+        bossFlag: r.u8(),
+        storyEventOutcome: r.u8(),
+        localTrigger: r.u8(),
+        storyTrigger: r.u8(),
+        unknown09: r.u8(),
+        localTriggerParam1: r.u8(),
+        localTriggerParam2: r.u8(),
+        posX: r.u8(),
+        posUnknown: r.u8(),
+        posY: r.u8(),
+        directionRaw: r.u8(),
+        behavior: r.u8(),
+        unknown11: r.u8(),
+        unknown12: r.u8(),
+        unknown13: r.u8(),
+        unknown14: r.u8(),
+        unknown15: r.u8(),
+        unknown16: r.u8(),
+        unknown17: r.u8(),
+        unknown18: r.u8(),
+        unknown19: r.u8(),
+        alwaysDrop1: r.u16(),
+        alwaysDrop2: r.u16(),
+        randomDrop: r.u16(),
+        alwaysDrop1Qty: r.u8(),
+        alwaysDrop2Qty: r.u8(),
+        randomDropPercent: r.u8(),
+        unknown23: r.u8(),
+        majorBoss: r.u8(),
+        modelTexture: r.u8(),
+        initialState: r.u8(),
+        unknown27: r.u8(),
+      });
+    }
+  }
+
   scriptSection() {
     const r = this.reader;
 
@@ -323,6 +387,7 @@ export class MPD {
     }
 
     this.buildTrapOverlay();
+    this.buildEnemyOverlay();
   }
 
   setMaterial(mat) {
@@ -381,6 +446,271 @@ export class MPD {
 
     this.trapOverlay = overlay;
     this.mesh.add(overlay);
+  }
+
+  buildEnemyOverlay() {
+    if (!this.enemies || this.enemies.length === 0) return;
+    if (!this.znd?.enemyZuds || this.znd.enemyZuds.length === 0) return;
+
+    const bounds = this.computeTrapBounds();
+    const surfaces = this.collectTrapSurfaces();
+    const overlay = new Object3D();
+    overlay.name = 'mpd-enemies';
+
+    for (const enemy of this.enemies) {
+      if (enemy.deleted !== 0) continue;
+
+      const zud = this.znd.getEnemyZud?.(enemy.zndEnemyId);
+      if (!zud?.shp?.mesh) continue;
+
+      const position = this.getEnemyWorldPosition(enemy);
+      const surfaceY = this.estimateTrapSurfaceY(
+        position.x,
+        position.z,
+        surfaces,
+        bounds,
+        0
+      );
+      const model = this.buildEnemyModel(zud, enemy);
+
+      if (!model) continue;
+
+      const container = new Object3D();
+      container.name = `enemy-${enemy.mpdEnemyId}`;
+      container.position.set(
+        position.x * ROOM_WORLD_SCALE,
+        -surfaceY * ROOM_WORLD_SCALE,
+        -position.z * ROOM_WORLD_SCALE
+      );
+      container.scale.setScalar(ROOM_WORLD_SCALE);
+      container.rotation.y = this.getEnemyFacingRotation(enemy.directionRaw);
+      container.add(model);
+      overlay.add(container);
+
+      const label = this.createEnemyLabel(enemy, zud);
+      if (label) {
+        label.position.set(
+          position.x * ROOM_WORLD_SCALE,
+          -surfaceY * ROOM_WORLD_SCALE + ENEMY_LABEL_WORLD_LIFT,
+          -position.z * ROOM_WORLD_SCALE
+        );
+        label.renderOrder = 2;
+        overlay.add(label);
+      }
+    }
+
+    this.enemyOverlay = overlay;
+    this.mesh.add(overlay);
+  }
+
+  buildEnemyModel(zud, enemy) {
+    const shp = zud?.shp;
+    const mesh = shp?.mesh;
+
+    if (!shp || !mesh) return null;
+
+    this.applyEnemyPose(zud, enemy);
+
+    const posed = cloneMeshWithPose(mesh);
+    posed.rotation.copy(mesh.rotation);
+    posed.position.copy(mesh.position);
+    posed.scale.copy(mesh.scale);
+    posed.updateMatrixWorld(true);
+    posed.renderOrder = 1;
+
+    shp.buildTPose();
+
+    return posed;
+  }
+
+  applyEnemyPose(zud, enemy) {
+    const shp = zud?.shp;
+    const sequence = this.pickEnemySequence(zud);
+    const animationId = this.pickEnemyAnimationId(sequence, enemy.initialState);
+
+    if (!shp) return;
+
+    shp.buildTPose();
+
+    if (
+      !sequence ||
+      animationId === null ||
+      !sequence.animations?.[animationId]?.animationClip
+    ) {
+      return;
+    }
+
+    const mixer = new AnimationMixer(shp.mesh);
+    const action = mixer.clipAction(
+      sequence.animations[animationId].animationClip,
+      shp.mesh
+    );
+    action.play();
+    mixer.update(0);
+    shp.mesh.skeleton?.update();
+    shp.mesh.updateMatrixWorld(true);
+  }
+
+  pickEnemySequence(zud) {
+    if (zud?.bt?.animations?.length) return zud.bt;
+    if (zud?.com?.animations?.length) return zud.com;
+    return null;
+  }
+
+  pickEnemyAnimationId(sequence, initialState) {
+    if (!sequence?.animations?.length) {
+      return null;
+    }
+
+    const slotAnimationId = sequence.slots?.[initialState];
+    if (
+      Number.isInteger(slotAnimationId) &&
+      slotAnimationId >= 0 &&
+      slotAnimationId < sequence.animations.length
+    ) {
+      return slotAnimationId;
+    }
+
+    if (initialState >= 0 && initialState < sequence.animations.length) {
+      return initialState;
+    }
+
+    return 0;
+  }
+
+  getEnemyFacingRotation(directionRaw) {
+    switch (directionRaw & 0x03) {
+      case 0:
+        return 0;
+      case 1:
+        return Math.PI / 2;
+      case 2:
+        return Math.PI;
+      case 3:
+        return -Math.PI / 2;
+      default:
+        return 0;
+    }
+  }
+
+  getEnemyWorldPosition(enemy) {
+    return {
+      x: enemy.posX * ROOM_GRID_UNIT + ROOM_GRID_ORIGIN_OFFSET,
+      z: enemy.posY * ROOM_GRID_UNIT + ROOM_GRID_ORIGIN_OFFSET,
+    };
+  }
+
+  createEnemyLabel(enemy, zud) {
+    if (typeof document === 'undefined') return null;
+
+    const lines = [
+      this.getEnemyDisplayName(enemy, zud),
+      this.formatEnemyTriggerLabel(enemy),
+    ];
+
+    const material = this.createLabelMaterial(lines.join('\n'), {
+      accent: '#80d8ff',
+    });
+    if (!material) return null;
+
+    const sprite = new Sprite(material);
+    const image = material.map?.image;
+    const width = image?.width || 320;
+    const height = image?.height || 96;
+
+    sprite.scale.set(
+      width * ENEMY_LABEL_WORLD_SCALE,
+      height * ENEMY_LABEL_WORLD_SCALE,
+      1
+    );
+
+    return sprite;
+  }
+
+  getEnemyDisplayName(enemy, zud) {
+    const stem = zud?.viewerMeta?.stem || zud?.viewerMeta?.name || 'Enemy';
+    return `${stem} (${this.hexByte(enemy.zndEnemyId)})`;
+  }
+
+  formatEnemyTriggerLabel(enemy) {
+    const local = enemy.localTrigger
+      ? `L${this.hexByte(enemy.localTrigger)}(${this.hexByte(enemy.localTriggerParam1)},${this.hexByte(enemy.localTriggerParam2)})`
+      : 'L--';
+    const story = enemy.storyTrigger
+      ? `S${this.hexByte(enemy.storyTrigger)}`
+      : 'S--';
+    const outcome = enemy.storyEventOutcome
+      ? ` -> ${this.hexByte(enemy.storyEventOutcome)}`
+      : '';
+    const direction = ENEMY_DIRECTION_LABELS[enemy.directionRaw & 0x03] || '?';
+
+    return `${local} | ${story}${outcome} | ${direction} | pose ${this.hexByte(enemy.initialState)}`;
+  }
+
+  createLabelMaterial(text, options: any = {}) {
+    if (typeof document === 'undefined') return null;
+
+    this.labelMaterials = this.labelMaterials || new Map();
+
+    const accent = options.accent || '#ffcc66';
+    const cacheKey = `${accent}:${text}`;
+    let material = this.labelMaterials.get(cacheKey);
+
+    if (material) {
+      return material;
+    }
+
+    const lines = String(text).split('\n');
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+
+    const fontSize = 30;
+    const lineGap = 8;
+    const paddingX = 20;
+    const paddingY = 16;
+    const lineHeight = fontSize + lineGap;
+
+    context.font = `bold ${fontSize}px sans-serif`;
+    const textWidth = Math.max(
+      ...lines.map((line) => Math.ceil(context.measureText(line).width)),
+      1
+    );
+
+    canvas.width = textWidth + paddingX * 2;
+    canvas.height =
+      lines.length * fontSize + Math.max(0, lines.length - 1) * lineGap + paddingY * 2;
+
+    context.font = `bold ${fontSize}px sans-serif`;
+    context.fillStyle = 'rgba(12, 18, 24, 0.86)';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.lineWidth = 3;
+    context.strokeStyle = accent;
+    context.strokeRect(1.5, 1.5, canvas.width - 3, canvas.height - 3);
+    context.fillStyle = '#ffffff';
+    context.textAlign = 'center';
+    context.textBaseline = 'top';
+
+    lines.forEach((line, index) => {
+      const y = paddingY + index * lineHeight;
+      context.fillText(line, canvas.width / 2, y);
+    });
+
+    const texture = new CanvasTexture(canvas);
+    texture.needsUpdate = true;
+
+    material = new SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false,
+    });
+    this.labelMaterials.set(cacheKey, material);
+
+    return material;
+  }
+
+  hexByte(value) {
+    return value.toString(16).toUpperCase().padStart(2, '0');
   }
 
   createTrapPanelMaterial() {

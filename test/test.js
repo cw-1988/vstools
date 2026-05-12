@@ -4,6 +4,7 @@ import './P.test.js';
 import './SEQ.test.js';
 import './SHP.test.js';
 import './shp-seq-resolver.test.js';
+import './VSTOOLS.test.js';
 import './WEP.test.js';
 import './ZND.test.js';
 import './ZUD.test.js';

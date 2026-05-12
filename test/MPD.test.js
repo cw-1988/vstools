@@ -69,13 +69,128 @@ test({
           tileX: 3,
           tileY: 10,
           trapId: 0x07,
-          name: 'Poison Panel',
+          name: 'Poison',
         },
         {
           tileX: 8,
           tileY: 6,
           trapId: 0x0c,
-          name: 'Heal Panel',
+          name: 'Heal',
+        },
+      ]
+    );
+  },
+});
+
+test({
+  label: 'MPD enemies',
+  test() {
+    const buffer = new ArrayBuffer(0x94 + 0x50);
+    const view = new DataView(buffer);
+    const u8 = new Uint8Array(buffer);
+
+    view.setUint32(0x00, 0x30, true);
+    view.setUint32(0x04, 0x64, true);
+    view.setUint32(0x20, 0x94, true);
+    view.setUint32(0x24, 0x50, true);
+
+    view.setUint32(0x30, 4, true);
+
+    view.setUint32(0x90, 0, true);
+
+    let pos = 0x94;
+
+    function writeEnemy({
+      deleted,
+      mpdEnemyId,
+      zndEnemyId,
+      localTrigger,
+      storyTrigger,
+      localTriggerParam1,
+      localTriggerParam2,
+      posX,
+      posY,
+      directionRaw,
+      initialState,
+    }) {
+      view.setUint8(pos + 0x00, deleted);
+      view.setUint8(pos + 0x01, mpdEnemyId);
+      view.setUint8(pos + 0x04, zndEnemyId);
+      view.setUint8(pos + 0x07, localTrigger);
+      view.setUint8(pos + 0x08, storyTrigger);
+      view.setUint8(pos + 0x0a, localTriggerParam1);
+      view.setUint8(pos + 0x0b, localTriggerParam2);
+      view.setUint8(pos + 0x0c, posX);
+      view.setUint8(pos + 0x0e, posY);
+      view.setUint8(pos + 0x0f, directionRaw);
+      view.setUint8(pos + 0x26, initialState);
+      pos += 0x28;
+    }
+
+    writeEnemy({
+      deleted: 0,
+      mpdEnemyId: 1,
+      zndEnemyId: 2,
+      localTrigger: 3,
+      storyTrigger: 4,
+      localTriggerParam1: 0xaa,
+      localTriggerParam2: 0xbb,
+      posX: 9,
+      posY: 11,
+      directionRaw: 1,
+      initialState: 5,
+    });
+    writeEnemy({
+      deleted: 1,
+      mpdEnemyId: 2,
+      zndEnemyId: 7,
+      localTrigger: 0,
+      storyTrigger: 0,
+      localTriggerParam1: 0,
+      localTriggerParam2: 0,
+      posX: 1,
+      posY: 2,
+      directionRaw: 3,
+      initialState: 0,
+    });
+
+    const it = new MPD(new Reader(u8));
+    it.read();
+
+    assert.deepEqual(
+      it.enemies.map((enemy) => ({
+        deleted: enemy.deleted,
+        mpdEnemyId: enemy.mpdEnemyId,
+        zndEnemyId: enemy.zndEnemyId,
+        localTrigger: enemy.localTrigger,
+        storyTrigger: enemy.storyTrigger,
+        posX: enemy.posX,
+        posY: enemy.posY,
+        directionRaw: enemy.directionRaw,
+        initialState: enemy.initialState,
+      })),
+      [
+        {
+          deleted: 0,
+          mpdEnemyId: 1,
+          zndEnemyId: 2,
+          localTrigger: 3,
+          storyTrigger: 4,
+          posX: 9,
+          posY: 11,
+          directionRaw: 1,
+          initialState: 5,
+        },
+        {
+          deleted: 1,
+          mpdEnemyId: 2,
+          zndEnemyId: 7,
+          localTrigger: 0,
+          storyTrigger: 0,
+          posX: 1,
+          posY: 2,
+          directionRaw: 3,
+          initialState: 0,
         },
       ]
     );

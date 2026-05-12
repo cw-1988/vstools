@@ -515,7 +515,7 @@ export function Viewer(this: ViewerContext) {
     root.add(mpd.mesh);
     frameRootObject();
 
-    if (activeZND) updateTextures(activeZND.textures);
+    if (activeZND) updateTextures(collectRoomTextures(activeZND));
     updateSettings();
   };
 
@@ -754,6 +754,17 @@ export function Viewer(this: ViewerContext) {
     if (zud?.shield?.textureMap?.textures) {
       textures.push(...zud.shield.textureMap.textures);
     }
+    return textures;
+  }
+
+  function collectRoomTextures(znd) {
+    const textures = [...(znd?.textures || [])];
+
+    for (const zud of znd?.enemyZuds || []) {
+      if (!zud) continue;
+      textures.push(...collectZudTextures(zud));
+    }
+
     return textures;
   }
 
@@ -1087,13 +1098,19 @@ export function Viewer(this: ViewerContext) {
 
   async function loadUrl(url, options: any = {}) {
     const ext = parseExt(url);
+    const data = await fetchUrlBytes(url);
+    load2(ext, data, options);
+  }
+
+  async function fetchUrlBytes(url) {
     const response = await fetch(new URL(url, window.location.href));
     if (!response.ok) {
-      throw new Error(`Failed to load ${url}: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `Failed to load ${url}: ${response.status} ${response.statusText}`
+      );
     }
 
-    const data = new Uint8Array(await response.arrayBuffer());
-    load2(ext, data, options);
+    return new Uint8Array(await response.arrayBuffer());
   }
 
   async function tryLoadMatchingSeqForShp(url, preference) {
@@ -1140,18 +1157,11 @@ export function Viewer(this: ViewerContext) {
     candidate: ShpSupplementalCandidate,
     preference
   ) {
-    const response = await fetch(new URL(candidate.url, window.location.href));
-    if (!response.ok) {
-      throw new Error(
-        `Failed to load ${candidate.url}: ${response.status} ${response.statusText}`
-      );
-    }
-
     if (!activeSHP) {
       throw new Error('Cannot load supplemental ZUD without SHP');
     }
 
-    const data = new Uint8Array(await response.arrayBuffer());
+    const data = await fetchUrlBytes(candidate.url);
     const zud = new ZUD(new Reader(data));
     zud.read();
     zud.build();
@@ -1171,6 +1181,45 @@ export function Viewer(this: ViewerContext) {
     }
 
     activeSEQLabel = candidate.label;
+  }
+
+  function getUrlStem(url) {
+    const clean = String(url || '').split('?')[0];
+    const slash = clean.lastIndexOf('/');
+    const base = slash >= 0 ? clean.slice(slash + 1) : clean;
+    const dot = base.lastIndexOf('.');
+
+    return dot > 0 ? base.slice(0, dot) : base;
+  }
+
+  async function preloadRoomEnemyZuds(urls) {
+    if (!activeZND?.attachEnemyZuds) return;
+
+    if (!urls || urls.length === 0) {
+      activeZND.attachEnemyZuds([]);
+      return;
+    }
+
+    const zuds = [];
+
+    for (const url of urls) {
+      if (parseExt(url) !== 'zud') {
+        zuds.push(null);
+        continue;
+      }
+
+      const data = await fetchUrlBytes(url);
+      const zud = new ZUD(new Reader(data));
+      zud.read();
+      zud.build();
+      zud.viewerMeta = {
+        name: url,
+        stem: getUrlStem(url),
+      };
+      zuds.push(zud);
+    }
+
+    activeZND.attachEnemyZuds(zuds);
   }
 
   function shpsAreCompatible(left, right) {
@@ -1254,6 +1303,8 @@ export function Viewer(this: ViewerContext) {
             supplemental: true,
           });
         }
+
+        await preloadRoomEnemyZuds(autoConfig.zudFiles);
       }
 
       if (loadedFromShpFallbackZud) {
@@ -1290,22 +1341,44 @@ export function Viewer(this: ViewerContext) {
   function parseAutoConfig() {
     const params = new URLSearchParams(window.location.search);
     const anim = params.get('anim');
-    const auxFiles = [];
-
-    for (let i = 1; ; ++i) {
-      const value = params.get(`aux${i}`);
-      if (value === null) break;
-      auxFiles.push(value);
-    }
+    const auxFiles = collectIndexedParams(params, 'aux');
+    const zudFiles = collectIndexedParams(params, 'zud');
 
     return {
       file1: params.get('file1'),
       file2: params.get('file2'),
       auxFiles,
+      zudFiles,
       seqPreference: normalizeSeqPreference(params.get('seq')),
       anim: anim === null ? null : parseInt(anim, 10),
       embedded: params.get('embedded') === '1',
     };
+  }
+
+  function collectIndexedParams(params, prefix) {
+    const entries = [];
+    let maxIndex = 0;
+
+    for (const [key, value] of params.entries()) {
+      if (!key.startsWith(prefix)) continue;
+
+      const suffix = key.slice(prefix.length);
+      if (!/^\d+$/.test(suffix)) continue;
+
+      const index = parseInt(suffix, 10);
+      if (!Number.isInteger(index) || index <= 0) continue;
+
+      entries[index - 1] = value;
+      maxIndex = Math.max(maxIndex, index);
+    }
+
+    if (maxIndex <= 0) return [];
+
+    const values = new Array(maxIndex);
+    for (let i = 0; i < maxIndex; ++i) {
+      values[i] = entries[i] ?? '';
+    }
+    return values;
   }
 
   function applyAutoConfig(config) {

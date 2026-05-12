@@ -107,7 +107,9 @@ export function cloneMeshWithPose(mesh) {
   const position = mesh.geometry.attributes.position;
   const skinIndex = mesh.geometry.attributes.skinIndex;
   const skinWeight = mesh.geometry.attributes.skinWeight;
-  const boneMatrices = mesh.skeleton.boneMatrices;
+  const skeleton = mesh.skeleton;
+  const bones = skeleton?.bones || [];
+  const boneInverses = skeleton?.boneInverses || [];
 
   const vertex = new Vector3();
   const temp = new Vector3();
@@ -115,6 +117,12 @@ export function cloneMeshWithPose(mesh) {
   const skinIndices = new Vector4();
   const skinWeights = new Vector4();
   const boneMatrix = new Matrix4();
+
+  // Derive the skinning matrices from the live bone transforms instead of the
+  // cached skeleton.boneMatrices array. In the static room-enemy bake path the
+  // bones are already posed, but Three.js does not always refresh that cache
+  // outside the normal render loop.
+  mesh.updateWorldMatrix(true, true);
 
   for (let i = 0; i < position.count; i++) {
     vertex.fromBufferAttribute(position, i);
@@ -127,8 +135,12 @@ export function cloneMeshWithPose(mesh) {
     for (let j = 0; j < 4; ++j) {
       const si = skinIndices.getComponent(j);
       const sw = skinWeights.getComponent(j);
+      const bone = bones[si];
+      const boneInverse = boneInverses[si];
 
-      boneMatrix.fromArray(boneMatrices, si * 16);
+      if (sw === 0 || !bone || !boneInverse) continue;
+
+      boneMatrix.multiplyMatrices(bone.matrixWorld, boneInverse);
       temp.copy(vertex).applyMatrix4(boneMatrix).multiplyScalar(sw);
       result.add(temp);
     }
